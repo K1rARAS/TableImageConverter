@@ -1,0 +1,11 @@
+.venv/
+.idea/
+__pycache__/
+dist/
+build/
+Team3/
+
+*.json
+*.spec
+*.log
+*.pyc
