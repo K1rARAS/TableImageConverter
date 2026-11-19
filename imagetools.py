@@ -7,37 +7,35 @@ from img2table.document import Image as Img2TableImage
 import math
 import numpy as np
 def read_image(image_path: str, flags: int = cv2.IMREAD_COLOR) -> np.ndarray:
-    """
-    Читает изображение с диска через OpenCV.
-
-    :param image_path: Путь к файлу изображения.
-    :param flags: Режим чтения OpenCV:
-                  cv2.IMREAD_COLOR     — цветное (BGR), по умолчанию;
-                  cv2.IMREAD_GRAYSCALE — оттенки серого;
-                  cv2.IMREAD_UNCHANGED — как есть (с альфа-каналом).
-    :return: numpy-массив с изображением.
-    :raises FileNotFoundError: если файл не существует.
-    :raises ValueError: если файл не удалось декодировать как изображение.
-    """
     if not os.path.exists(image_path):
         raise FileNotFoundError(f"Файл не найден: {image_path}")
-
-    # cv2.imread не понимает кириллицу в пути на Windows,
-    # поэтому читаем байты через numpy и декодируем из памяти
     try:
         with open(image_path, "rb") as f:
             file_bytes = np.frombuffer(f.read(), dtype=np.uint8)
         img = cv2.imdecode(file_bytes, flags)
     except Exception as e:
         raise ValueError(f"Не удалось прочитать файл {image_path}: {e}") from e
-
     if img is None:
         raise ValueError(f"Не удалось декодировать изображение: {image_path}")
-
     return img
 
+
+def read_image_bytes(image_path: str) -> bytes:
+    """Сырые байты файла — для передачи в img2table."""
+    with open(image_path, "rb") as f:
+        return f.read()
+
+
+def write_image(image_path: str, img: np.ndarray, ext: str = ".png") -> None:
+    """Аналог cv2.imwrite, но с поддержкой кириллицы в пути."""
+    ok, buf = cv2.imencode(ext, img)
+    if not ok:
+        raise ValueError(f"Не удалось закодировать изображение для {image_path}")
+    with open(image_path, "wb") as f:
+        f.write(buf.tobytes())
+
 def get_angle(path):
-    image = cv2.imread(path)
+    image = read_image(path)
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
     # Ключевой параметр: angle_pm_90=True поддерживает диапазон ±90°
@@ -45,7 +43,7 @@ def get_angle(path):
     return angle
 
 def rotate_no_crop(image_path, angle, background=(255, 255, 255)):
-    image = cv2.imread(image_path)
+    image = read_image(image_path)
     if image is None:
         raise FileNotFoundError(f"Не удалось открыть изображение: {image_path}")
     old_h, old_w = image.shape[:2]
@@ -68,7 +66,7 @@ def rotate_no_crop(image_path, angle, background=(255, 255, 255)):
     return rotated
 
 def process_table_with_custom_ocr(image_path, ocr_instance, output_dir="cells",
-                                  keep_files=False, min_cell_size=4):
+                                  keep_files=False, min_cell_size=4,progress_factory=None):
     """
     image_path: путь к исходному изображению таблицы
     ocr_instance: экземпляр CyrillicOCR (метод .predict(path))
@@ -76,14 +74,18 @@ def process_table_with_custom_ocr(image_path, ocr_instance, output_dir="cells",
     keep_files: удалять ли временные файлы после OCR
     min_cell_size: минимальный размер ячейки (px), меньше — пропускаем
     """
-    doc = Img2TableImage(image_path)
+    from progressbar import progressbar as _default_pb
+    if progress_factory is None:
+        progress_factory = _default_pb
+
+    doc = Img2TableImage(read_image_bytes(image_path))
     extracted_tables = doc.extract_tables(ocr=None)
 
     if not extracted_tables:
         print("Таблицы не найдены")
         return {}
 
-    img = cv2.imread(image_path)
+    img = read_image(image_path)
     if img is None:
         raise FileNotFoundError(f"Не удалось открыть изображение: {image_path}")
     h, w = img.shape[:2]
@@ -108,7 +110,8 @@ def process_table_with_custom_ocr(image_path, ocr_instance, output_dir="cells",
         for row_idx, col_idx, x1, y1, x2, y2 in cells:
             all_cells.append((table_idx, row_idx, col_idx, x1, y1, x2, y2))
 
-    pb = progressbar("Распознавание ячеек", len(all_cells), 50) if progressbar else None
+    pb = progress_factory("Распознавание ячеек", len(all_cells), 50) \
+        if all_cells else None
 
 
     for table_idx, table in enumerate(extracted_tables):
@@ -137,7 +140,7 @@ def process_table_with_custom_ocr(image_path, ocr_instance, output_dir="cells",
             tmp_path = os.path.join(
                 output_dir, f"t{table_idx}_r{row_idx}_c{col_idx}.png"
             )
-            cv2.imwrite(tmp_path, cell_img)
+            write_image(tmp_path, cell_img)
 
             try:
                 text = ocr_instance.predict(tmp_path)

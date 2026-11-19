@@ -57,7 +57,7 @@ class ImageTools:
     # ------------------------------------------------------------------ #
     # шаг 2: нарезка ячеек (делегируем в process_table_with_custom_ocr)
     # ------------------------------------------------------------------ #
-    def divide(self, image_path: str | None = None) -> dict:
+    def divide(self, image_path: str | None = None, output_dir="cells", progress_callback=None) -> dict:
         """
         Нарезает ячейки и прогоняет OCR через process_table_with_custom_ocr.
         Возвращает dict: {(table_idx, row_idx, col_idx): {"text", "bbox", "file"}}.
@@ -66,16 +66,23 @@ class ImageTools:
         if target is None:
             raise ValueError("Не задан путь к изображению для нарезки")
 
+        # Создаем фабрику прогресса
+        from progressbar import progressbar as _pb
+        factory = None
+        if progress_callback is not None:
+            factory = lambda name, max_, w: _pb(name, max_, w, callback=progress_callback)
+
         results = process_table_with_custom_ocr(
             image_path=str(target),
             ocr_instance=self.ocr,
-            output_dir=self.ft.buffer,
-            keep_files=False,      # временные файлы не нужны
+            output_dir=output_dir,         # передаем аргумент
+            keep_files=False,
             min_cell_size=4,
+            progress_factory=factory       # передаем фабрику в OCR
         )
 
         self.cnt = len(results)
-        self.buffer = self.ft.buffer
+        self.buffer = output_dir
 
         if not results:
             self.log.info("Таблицы не найдены или ячейки пусты")
@@ -88,12 +95,10 @@ class ImageTools:
         """Собирает результаты OCR в строку вида 'a/b/c\\nd/e/f'."""
         if not results:
             return ""
-        pb = progressbar("Сборка таблицы:",len(results),50)
         grid = defaultdict(dict)
         max_row = max_col = -1
 
         for (t, r, c), item in results.items():
-            pb.progress(1)
             grid[r][c] = item.get("text", "")
             max_row = max(max_row, r)
             max_col = max(max_col, c)
@@ -120,10 +125,16 @@ class ImageTools:
         self.result = self.build_text(results)
         return self.result
 
-    def start(self, path: str) -> str:
+    def start(self, path, output_dir="cells", progress_callback=None):
         """Главный метод: загрузка -> нарезка -> распознавание."""
+
+        # 1. Выравниваем изображение
         self.download(path)
-        results = self.divide(self.obj_plt)
+
+        # 2. Нарезаем и распознаем (передаем callback и output_dir!)
+        results = self.divide(self.obj_plt, output_dir=output_dir, progress_callback=progress_callback)
+
+        # 3. Собираем текст
         self.result = self.build_text(results)
         return self.result
 
