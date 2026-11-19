@@ -19,7 +19,7 @@ Contributors: **vladlinv**
 > ⚠️ **Current status:** the program is under active development. Known limitations at this stage include:
 >
 > - Long model loading time at app startup;
-> - Recognition accuracy is currently low and requires further improvement.
+
 
 ## Features
 
