@@ -5,9 +5,10 @@ from pathlib import Path
 from PyQt6.QtWidgets import (
     QWidget, QApplication, QHBoxLayout, QVBoxLayout,
     QPushButton, QLabel, QSizeGrip, QFrame, QFileDialog,
-    QLineEdit, QListWidget, QMessageBox, QTextEdit, QStackedWidget,QProgressBar
+    QLineEdit, QListWidget, QMessageBox, QTextEdit, QStackedWidget,
+    QProgressBar, QScrollArea
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QVariantAnimation, QEasingCurve
 from PyQt6.QtGui import (
     QPainter, QPen, QColor, QRadialGradient, QPainterPath,
     QDragEnterEvent, QDropEvent, QIcon
@@ -17,18 +18,53 @@ from Terminal import Terminal
 from convtools import xlsx_convert
 
 
+# ----------------------- Анимированная кнопка -----------------------
+class AnimatedButton(QPushButton):
+    """Кнопка с плавной анимацией цвета фона при наведении."""
+    def __init__(self, text: str, normal_color: QColor, hover_color: QColor, base_style: str = "", parent=None):
+        super().__init__(text, parent)
+        self.normal_color = normal_color
+        self.hover_color = hover_color
+        self.current_color = normal_color
+        self.base_style = base_style
+
+        self.anim = QVariantAnimation(self)
+        self.anim.setDuration(250)  # Длительность анимации в мс
+        self.anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self.anim.valueChanged.connect(self._apply_color)
+
+        self._apply_color(self.current_color)
+
+    def _apply_color(self, color: QColor):
+        self.current_color = color
+        bg_rule = f"background: rgba({color.red()}, {color.green()}, {color.blue()}, {color.alpha()});"
+        self.setStyleSheet(f"{bg_rule}\n{self.base_style}")
+
+    def enterEvent(self, event):
+        self.anim.setStartValue(self.current_color)
+        self.anim.setEndValue(self.hover_color)
+        self.anim.start()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self.anim.setStartValue(self.current_color)
+        self.anim.setEndValue(self.normal_color)
+        self.anim.start()
+        super().leaveEvent(event)
+
+
 # ----------------------- Воркер для тяжёлого OCR -----------------------
 class ProcessWorker(QThread):
     finished_ok      = pyqtSignal(str)
     failed           = pyqtSignal(str)
-    cancelled        = pyqtSignal()                 # ← новое
+    cancelled        = pyqtSignal()
     progress_changed = pyqtSignal(int, str)
 
     def __init__(self, terminal, image_path):
         super().__init__()
         self.terminal = terminal
         self.image_path = image_path
-        self._cancelled = False                     # ← флаг отмены
+        self._cancelled = False
 
     def cancel(self):
         self._cancelled = True
@@ -36,7 +72,7 @@ class ProcessWorker(QThread):
     def run(self):
         try:
             def _cb(percent, text):
-                if self._cancelled:                 # ← прерываемся на первом же шаге
+                if self._cancelled:
                     raise InterruptedError("Операция отменена пользователем")
                 self.progress_changed.emit(percent, text)
 
@@ -47,9 +83,11 @@ class ProcessWorker(QThread):
                 raise InterruptedError("Операция отменена пользователем")
             self.finished_ok.emit(text)
         except InterruptedError:
-            self.cancelled.emit()                   # ← отдельный сигнал
+            self.cancelled.emit()
         except Exception as e:
             self.failed.emit(f"{e}\n\n{traceback.format_exc()}")
+
+
 # ---------------------------- UI ----------------------------
 class MainWindow(QWidget):
     def __init__(self):
@@ -58,10 +96,9 @@ class MainWindow(QWidget):
         self.setWindowIcon(QIcon(str(icon_path)))
         self.setWindowTitle("Table Image Converter")
         self._drag_pos = None
-        self.core = Terminal()          # инициализация ftools + OCR
+        self.core = Terminal()
         self.worker: ProcessWorker | None = None
         self.init_win()
-        self.setWindowIcon(QIcon(str(icon_path)))
 
     # ---------- Отрисовка ----------
     def paintEvent(self, event):
@@ -172,30 +209,27 @@ class MainWindow(QWidget):
         menu_lay.setContentsMargins(10, 10, 10, 10)
         menu_lay.setSpacing(8)
 
-        self.btn_drop_zone = QPushButton("📂  Обработать")
-        self.btn_dirs      = QPushButton("🗂  Директории")
-        self.btn_history   = QPushButton("🕘  История")
-        self.btn_profile   = QPushButton("👤  Профиль")
+        menu_style = """
+            color: white; border: 1px solid rgba(255,255,255,60);
+            border-radius: 8px; padding: 8px; text-align: left;
+        """
+        normal_c = QColor(255, 255, 255, 15)
+        hover_c  = QColor(255, 122, 0, 120)
 
-        for b in (self.btn_drop_zone, self.btn_dirs, self.btn_history, self.btn_profile):
-            b.setStyleSheet("""
-                QPushButton {
-                    background: rgba(255,255,255,15);
-                    color: white; border: 1px solid rgba(255,255,255,60);
-                    border-radius: 8px; padding: 8px; text-align: left;
-                }
-                QPushButton:hover { background: rgba(255,122,0,120); }
-            """)
+        self.btn_drop_zone = AnimatedButton("📂  Обработать", normal_c, hover_c, menu_style)
+        self.btn_dirs      = AnimatedButton("🗂  Директории", normal_c, hover_c, menu_style)
+        self.btn_history   = AnimatedButton("🕘  История", normal_c, hover_c, menu_style)
+        self.btn_profile   = AnimatedButton("👤  Профиль", normal_c, hover_c, menu_style)
+        self.btn_questions = AnimatedButton("❓  Вопросы", normal_c, hover_c, menu_style) # ← Новая кнопка
 
         self.btn_drop_zone.clicked.connect(lambda: self.stack.setCurrentIndex(0))
         self.btn_dirs.clicked.connect(lambda: self.stack.setCurrentIndex(1))
         self.btn_history.clicked.connect(lambda: self.stack.setCurrentIndex(2))
         self.btn_profile.clicked.connect(lambda: self.stack.setCurrentIndex(3))
+        self.btn_questions.clicked.connect(lambda: self.stack.setCurrentIndex(4)) # ← Переключение на новую вкладку
 
-        menu_lay.addWidget(self.btn_drop_zone)
-        menu_lay.addWidget(self.btn_dirs)
-        menu_lay.addWidget(self.btn_history)
-        menu_lay.addWidget(self.btn_profile)
+        for b in (self.btn_drop_zone, self.btn_dirs, self.btn_history, self.btn_profile, self.btn_questions):
+            menu_lay.addWidget(b)
         menu_lay.addStretch()
 
         # ---- Правая панель: стек страниц ----
@@ -204,11 +238,11 @@ class MainWindow(QWidget):
         self.stack.addWidget(self.page_directories())
         self.stack.addWidget(self.page_history())
         self.stack.addWidget(self.page_profile())
+        self.stack.addWidget(self.page_questions()) # ← Добавлена новая страница
 
         root.addWidget(menu)
         root.addWidget(self.stack, 1)
 
-        # QSizeGrip
         grip = QSizeGrip(self)
         root.addWidget(grip, 0, Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight)
 
@@ -217,7 +251,6 @@ class MainWindow(QWidget):
         w = QWidget()
         lay = QVBoxLayout(w)
 
-        # --- drop-зона ---
         self.drop_frame = QFrame()
         self.drop_frame.setAcceptDrops(True)
         self.drop_frame.setStyleSheet("""
@@ -230,19 +263,25 @@ class MainWindow(QWidget):
         drop_lay = QVBoxLayout(self.drop_frame)
         self.drop_hint = QLabel("Перетащите изображение таблицы сюда\nили нажмите кнопку ниже")
         self.drop_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.drop_hint.setStyleSheet(
-            "color:#8080ff; font-size:14px; background:transparent; border:none;"
-        )
+        self.drop_hint.setStyleSheet("color:#8080ff; font-size:14px; background:transparent; border:none;")
         drop_lay.addWidget(self.drop_hint)
 
-        # --- кнопки: выбрать файл + отмена ---
         btn_row = QHBoxLayout()
 
-        btn_pick = QPushButton("Выбрать файл…")
+        # ← Анимированная кнопка выбора файла
+        btn_pick = AnimatedButton(
+            "📁  Выбрать файл…",
+            QColor(255, 255, 255, 20),
+            QColor(255, 122, 0, 150),
+            base_style="""
+                color: white; border: 1px solid rgba(255,255,255,60);
+                border-radius: 8px; padding: 10px; font-weight: bold;
+            """
+        )
         btn_pick.clicked.connect(self.pick_file)
 
         self.btn_cancel = QPushButton("✖  Отмена")
-        self.btn_cancel.setEnabled(False)          # активна только во время обработки
+        self.btn_cancel.setEnabled(False)
         self.btn_cancel.setStyleSheet("""
             QPushButton {
                 background: rgba(255, 60, 60, 160); color: white;
@@ -260,7 +299,6 @@ class MainWindow(QWidget):
         btn_row.addWidget(btn_pick, 1)
         btn_row.addWidget(self.btn_cancel)
 
-        # --- прогресс: label + bar ---
         self.progress_label = QLabel("")
         self.progress_label.setStyleSheet("color:#e0e0ff; background:transparent;")
         self.progress_label.setVisible(False)
@@ -277,18 +315,13 @@ class MainWindow(QWidget):
             QProgressBar::chunk { background: #FF7A00; border-radius: 5px; }
         """)
 
-        # --- лог ---
         self.log_view = QTextEdit()
         self.log_view.setReadOnly(True)
-        self.log_view.setStyleSheet(
-            "background: rgba(0,0,0,120); color:#e0e0ff;"
-            "border: 1px solid #0000ff; border-radius: 8px; padding: 6px;"
-        )
+        self.log_view.setStyleSheet("background: rgba(0,0,0,120); color:#e0e0ff; border: 1px solid #0000ff; border-radius: 8px; padding: 6px;")
         self.log_view.setPlaceholderText("Здесь появится распознанный текст…")
 
-        # --- сборка ---
         lay.addWidget(self.drop_frame, 2)
-        lay.addLayout(btn_row)                 # ← вместо addWidget(btn_pick)
+        lay.addLayout(btn_row)
         lay.addWidget(self.progress_label)
         lay.addWidget(self.progress_bar)
         lay.addWidget(self.log_view, 2)
@@ -298,7 +331,6 @@ class MainWindow(QWidget):
     def page_directories(self):
         w = QWidget()
         lay = QVBoxLayout(w)
-
         lbl = QLabel("Папка для сохранения результатов:")
         lbl.setStyleSheet("color: white;")
 
@@ -306,10 +338,7 @@ class MainWindow(QWidget):
         self.dir_edit.setReadOnly(True)
         cur = self.core.get_output() or "не выбрана"
         self.dir_edit.setText(cur)
-        self.dir_edit.setStyleSheet(
-            "background: rgba(0,0,0,120); color: white;"
-            "border: 1px solid #0000ff; border-radius: 6px; padding: 6px;"
-        )
+        self.dir_edit.setStyleSheet("background: rgba(0,0,0,120); color: white; border: 1px solid #0000ff; border-radius: 6px; padding: 6px;")
 
         btn_change = QPushButton("Сменить директорию…")
         btn_change.clicked.connect(self.change_dir)
@@ -324,20 +353,15 @@ class MainWindow(QWidget):
     def page_history(self):
         w = QWidget()
         lay = QVBoxLayout(w)
-
         lbl = QLabel("История обработок (двойной клик — пересобрать XLSX):")
         lbl.setStyleSheet("color: white;")
 
         self.hist_list = QListWidget()
-        self.hist_list.setStyleSheet(
-            "background: rgba(0,0,0,120); color:#e0e0ff;"
-            "border: 1px solid #0000ff; border-radius: 8px;"
-        )
+        self.hist_list.setStyleSheet("background: rgba(0,0,0,120); color:#e0e0ff; border: 1px solid #0000ff; border-radius: 8px;")
         self.hist_list.itemDoubleClicked.connect(self.repeat_history)
 
         btn_clear = QPushButton("Очистить историю")
         btn_clear.clicked.connect(self.clear_history)
-
         btn_refresh = QPushButton("Обновить")
         btn_refresh.clicked.connect(self.refresh_history)
 
@@ -352,15 +376,11 @@ class MainWindow(QWidget):
     def page_profile(self):
         w = QWidget()
         lay = QVBoxLayout(w)
-
         lbl = QLabel("Как программа будет к вам обращаться?")
         lbl.setStyleSheet("color: white;")
 
         self.name_edit = QLineEdit(self.core.get_name())
-        self.name_edit.setStyleSheet(
-            "background: rgba(0,0,0,120); color: white;"
-            "border: 1px solid #0000ff; border-radius: 6px; padding: 6px;"
-        )
+        self.name_edit.setStyleSheet("background: rgba(0,0,0,120); color: white; border: 1px solid #0000ff; border-radius: 6px; padding: 6px;")
 
         btn_save = QPushButton("Сохранить имя")
         btn_save.clicked.connect(self.save_name)
@@ -369,6 +389,84 @@ class MainWindow(QWidget):
         lay.addWidget(self.name_edit)
         lay.addWidget(btn_save)
         lay.addStretch()
+        return w
+
+    # ---------- Страница: Вопросы (Начало работы) ----------
+    def page_questions(self):
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        lay.setContentsMargins(10, 10, 10, 10)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("background: transparent; border: none;")
+
+        content = QWidget()
+        content_lay = QVBoxLayout(content)
+
+        title = QLabel("🚀 Начало работы с Table Image Converter")
+        title.setStyleSheet("color: #FF7A00; font-size: 18px; font-weight: bold; margin-bottom: 10px;")
+
+        help_text = QTextEdit()
+        help_text.setReadOnly(True)
+        help_text.setHtml("""
+            <style>
+                body { color: #e0e0ff; font-size: 14px; line-height: 1.6; }
+                h3 { color: #FF7A00; margin-top: 20px; margin-bottom: 10px; }
+                .step { 
+                    background: rgba(255, 255, 255, 10); 
+                    padding: 12px; 
+                    border-radius: 6px; 
+                    margin-bottom: 12px; 
+                    border-left: 3px solid #FF7A00; 
+                }
+                .highlight { color: #FF7A00; font-weight: bold; }
+            </style>
+            <h3>Добро пожаловать!</h3>
+            <p>Эта программа предназначена для быстрого и точного распознавания текста с изображений таблиц и сохранения его в формате Excel (XLSX).</p>
+
+            <div class="step">
+                <b>Шаг 1: Загрузка изображения</b><br>
+                Перетащите изображение таблицы в область <span class="highlight">"Перетащите изображение сюда"</span> или нажмите кнопку <span class="highlight">"Выбрать файл…"</span>. Поддерживаются форматы: PNG, JPG, JPEG, BMP, TIFF.
+            </div>
+
+            <div class="step">
+                <b>Шаг 2: Обработка</b><br>
+                Программа автоматически распознает текст. Вы увидите прогресс-бар и статус выполнения. Процесс можно прервать в любой момент кнопкой <span class="highlight">"Отмена"</span>.
+            </div>
+
+            <div class="step">
+                <b>Шаг 3: Сохранение результата</b><br>
+                Распознанный текст отобразится в логе. Одновременно файл будет сохранён в папке, указанной во вкладке <span class="highlight">"Директории"</span>.
+            </div>
+
+            <div class="step">
+                <b>Шаг 4: История и повторная конвертация</b><br>
+                Во вкладке <span class="highlight">"История"</span> хранятся все обработанные файлы. <i>Двойной клик</i> по записи в истории запустит повторную сборку XLSX-файла без необходимости заново обрабатывать изображение.
+            </div>
+
+            <h3>💡 Советы для лучшего результата</h3>
+            <ul>
+                <li>Используйте изображения с хорошим освещением и чётким текстом.</li>
+                <li>Избегайте сильных бликов и теней на области таблицы.</li>
+                <li>Если распознавание прошло некорректно, вы можете вручную отредактировать текстовый файл в папке результатов перед повторной сборкой XLSX.</li>
+            </ul>
+        """)
+        help_text.setStyleSheet("""
+            QTextEdit {
+                background: rgba(0, 0, 0, 120);
+                color: #e0e0ff;
+                border: 1px solid #0000ff;
+                border-radius: 8px;
+                padding: 15px;
+            }
+        """)
+
+        content_lay.addWidget(title)
+        content_lay.addWidget(help_text, 1)
+
+        scroll.setWidget(content)
+        lay.addWidget(scroll)
         return w
 
     # -------------------- Логика --------------------
@@ -391,14 +489,14 @@ class MainWindow(QWidget):
         self.progress_bar.setVisible(True)
         self.progress_label.setVisible(True)
         self.progress_label.setText("Подготовка...")
-        self.btn_cancel.setEnabled(True)  # ←
+        self.btn_cancel.setEnabled(True)
 
         self.worker = ProcessWorker(self.core, path)
         self.worker.finished_ok.connect(self.on_process_ok)
         self.worker.failed.connect(self.on_process_fail)
-        self.worker.cancelled.connect(self.on_process_cancelled)  # ←
+        self.worker.cancelled.connect(self.on_process_cancelled)
         self.worker.progress_changed.connect(self.on_progress)
-        self.worker.finished.connect(self._on_worker_finished)  # ←
+        self.worker.finished.connect(self._on_worker_finished)
 
         self.worker.start()
         self.stack.setCurrentIndex(0)
@@ -410,11 +508,11 @@ class MainWindow(QWidget):
     def on_process_ok(self, text: str):
         self.progress_bar.setVisible(False)
         self.progress_label.setVisible(False)
-        self.btn_cancel.setEnabled(False)  # ←
+        self.btn_cancel.setEnabled(False)
         self.log_view.append("✅ Готово\n")
         self.log_view.append(text or "(пусто)")
         self.refresh_history()
-    # ---------- Отмена ----------
+
     def cancel_process(self):
         if self.worker and self.worker.isRunning():
             self.worker.cancel()
@@ -433,7 +531,7 @@ class MainWindow(QWidget):
     def on_process_fail(self, err: str):
         self.progress_bar.setVisible(False)
         self.progress_label.setVisible(False)
-        self.btn_cancel.setEnabled(False)  # ←
+        self.btn_cancel.setEnabled(False)
         self.log_view.append(f"❌ Ошибка:\n{err}")
         QMessageBox.critical(self, "Ошибка", err.splitlines()[0])
 
@@ -458,7 +556,6 @@ class MainWindow(QWidget):
     def repeat_history(self, item):
         idx = self.hist_list.row(item)
         history = self.core.get_history()
-        # пропускаем служебный {"":[]}
         flat = [h for h in history if list(h.keys()) != [""]]
         if idx >= len(flat):
             return
@@ -549,10 +646,8 @@ class MainWindow(QWidget):
     def closeEvent(self, event):
         if self.worker and self.worker.isRunning():
             self.worker.cancel()
-            self.worker.wait(3000)  # ждём до 3 секунд
+            self.worker.wait(3000)
         super().closeEvent(event)
-
-
 
 
 # -------------------- Точка входа --------------------
