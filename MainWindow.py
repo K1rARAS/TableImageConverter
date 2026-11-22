@@ -21,24 +21,35 @@ from convtools import xlsx_convert
 class ProcessWorker(QThread):
     finished_ok      = pyqtSignal(str)
     failed           = pyqtSignal(str)
-    progress_changed = pyqtSignal(int, str)       # ← новое: percent, текст
+    cancelled        = pyqtSignal()                 # ← новое
+    progress_changed = pyqtSignal(int, str)
 
     def __init__(self, terminal, image_path):
         super().__init__()
         self.terminal = terminal
         self.image_path = image_path
+        self._cancelled = False                     # ← флаг отмены
+
+    def cancel(self):
+        self._cancelled = True
 
     def run(self):
         try:
             def _cb(percent, text):
-                self.progress_changed.emit(percent, text)         # потокобезопасно
+                if self._cancelled:                 # ← прерываемся на первом же шаге
+                    raise InterruptedError("Операция отменена пользователем")
+                self.progress_changed.emit(percent, text)
+
             text = self.terminal.process_image(
-                self.image_path, progress_callback=_cb             # ← изменено
+                self.image_path, progress_callback=_cb
             )
+            if self._cancelled:
+                raise InterruptedError("Операция отменена пользователем")
             self.finished_ok.emit(text)
+        except InterruptedError:
+            self.cancelled.emit()                   # ← отдельный сигнал
         except Exception as e:
             self.failed.emit(f"{e}\n\n{traceback.format_exc()}")
-
 # ---------------------------- UI ----------------------------
 class MainWindow(QWidget):
     def __init__(self):
@@ -224,9 +235,30 @@ class MainWindow(QWidget):
         )
         drop_lay.addWidget(self.drop_hint)
 
-        # --- кнопка ---
+        # --- кнопки: выбрать файл + отмена ---
+        btn_row = QHBoxLayout()
+
         btn_pick = QPushButton("Выбрать файл…")
         btn_pick.clicked.connect(self.pick_file)
+
+        self.btn_cancel = QPushButton("✖  Отмена")
+        self.btn_cancel.setEnabled(False)          # активна только во время обработки
+        self.btn_cancel.setStyleSheet("""
+            QPushButton {
+                background: rgba(255, 60, 60, 160); color: white;
+                border: 1px solid rgba(255,255,255,60);
+                border-radius: 8px; padding: 6px 14px;
+            }
+            QPushButton:hover { background: rgba(255, 60, 60, 220); }
+            QPushButton:disabled {
+                background: rgba(120,120,120,80);
+                color: rgba(255,255,255,80);
+            }
+        """)
+        self.btn_cancel.clicked.connect(self.cancel_process)
+
+        btn_row.addWidget(btn_pick, 1)
+        btn_row.addWidget(self.btn_cancel)
 
         # --- прогресс: label + bar ---
         self.progress_label = QLabel("")
@@ -245,7 +277,7 @@ class MainWindow(QWidget):
             QProgressBar::chunk { background: #FF7A00; border-radius: 5px; }
         """)
 
-        # --- лог: создаём ДО addWidget ---
+        # --- лог ---
         self.log_view = QTextEdit()
         self.log_view.setReadOnly(True)
         self.log_view.setStyleSheet(
@@ -256,7 +288,7 @@ class MainWindow(QWidget):
 
         # --- сборка ---
         lay.addWidget(self.drop_frame, 2)
-        lay.addWidget(btn_pick)
+        lay.addLayout(btn_row)                 # ← вместо addWidget(btn_pick)
         lay.addWidget(self.progress_label)
         lay.addWidget(self.progress_bar)
         lay.addWidget(self.log_view, 2)
@@ -359,12 +391,14 @@ class MainWindow(QWidget):
         self.progress_bar.setVisible(True)
         self.progress_label.setVisible(True)
         self.progress_label.setText("Подготовка...")
+        self.btn_cancel.setEnabled(True)  # ←
 
         self.worker = ProcessWorker(self.core, path)
         self.worker.finished_ok.connect(self.on_process_ok)
         self.worker.failed.connect(self.on_process_fail)
-
+        self.worker.cancelled.connect(self.on_process_cancelled)  # ←
         self.worker.progress_changed.connect(self.on_progress)
+        self.worker.finished.connect(self._on_worker_finished)  # ←
 
         self.worker.start()
         self.stack.setCurrentIndex(0)
@@ -376,13 +410,30 @@ class MainWindow(QWidget):
     def on_process_ok(self, text: str):
         self.progress_bar.setVisible(False)
         self.progress_label.setVisible(False)
+        self.btn_cancel.setEnabled(False)  # ←
         self.log_view.append("✅ Готово\n")
         self.log_view.append(text or "(пусто)")
         self.refresh_history()
+    # ---------- Отмена ----------
+    def cancel_process(self):
+        if self.worker and self.worker.isRunning():
+            self.worker.cancel()
+            self.btn_cancel.setEnabled(False)
+            self.progress_label.setText("⏹ Отмена… подождите завершения текущего шага")
+
+    def on_process_cancelled(self):
+        self.progress_bar.setVisible(False)
+        self.progress_label.setVisible(False)
+        self.log_view.append("⏹ Операция отменена пользователем.")
+
+    def _on_worker_finished(self):
+        self.btn_cancel.setEnabled(False)
+        self.worker = None
 
     def on_process_fail(self, err: str):
         self.progress_bar.setVisible(False)
         self.progress_label.setVisible(False)
+        self.btn_cancel.setEnabled(False)  # ←
         self.log_view.append(f"❌ Ошибка:\n{err}")
         QMessageBox.critical(self, "Ошибка", err.splitlines()[0])
 
@@ -494,6 +545,14 @@ class MainWindow(QWidget):
             self.showNormal()
         else:
             self.showMaximized()
+
+    def closeEvent(self, event):
+        if self.worker and self.worker.isRunning():
+            self.worker.cancel()
+            self.worker.wait(3000)  # ждём до 3 секунд
+        super().closeEvent(event)
+
+
 
 
 # -------------------- Точка входа --------------------
