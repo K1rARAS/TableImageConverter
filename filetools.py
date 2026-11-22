@@ -116,7 +116,7 @@ class ftools:
         self.logger.info(f"Папка {self.base} успешно создана")
         self.buffer.mkdir(parents = True, exist_ok = True)
         self.logger.info(f"Папка {self.buffer} успешно создана")
-        forms = {'Name':"Uknown","Password":"None","Clear_Password":'12345',"Output":"None","History":[{"":[]}]}
+        forms = {'Name':"Uknown","Password":"None","Clear_Password":'12345',"Output":str(Path(sys.executable).resolve().parent),"History":[{"":[]}]}
         self.user.touch(exist_ok=True)
         self.logger.info(f"Файл создан, Запись шаблона")
         self.write_j(self.user,forms)
