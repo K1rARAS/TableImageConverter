@@ -26,7 +26,7 @@ class Terminal:
 
         # Модель грузим сразу (один раз)
         self.space = ImageTools(self.ft)
-        self.output = self.ft.read_j(self.ft.user).get("Output")
+        self.output = self.ft.read_j(self.ft.user)["Output"]
 
     # ---------- действия ----------
     def get_name(self) -> str:
@@ -59,6 +59,7 @@ class Terminal:
 
         # 1. Получаем путь и сохраняем его в переменную out_dir
         out_dir = self.get_output()
+        cell_buffer_dir = str(self.ft.buffer.resolve())
 
         # 2. Проверяем, что папка выбрана
         if not out_dir:
@@ -69,7 +70,7 @@ class Terminal:
         # 3. Передаём эту переменную в space.start()
         self.space.start(
             image_path,
-            output_dir=out_dir,
+            output_dir=cell_buffer_dir,
             progress_callback=progress_callback
         )
 

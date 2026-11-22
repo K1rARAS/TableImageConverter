@@ -11,6 +11,7 @@ class ftools:
         self.base = self.data / 'Team3' / 'TableImageConverter'
         self.user = self.base / 'User.json'
         self.buffer = self.base / 'buffer'
+        self.logs = self.base / 'logs'
         self.output = None
         self.logger_path = self.base / 'logs' / 'app.log'
         self.logger = logger('app-filetools', self.get_logger_path())

@@ -1,11 +1,13 @@
 import sys
 import os
+from filetools import ftools
 
 # --- БЛОК ПЕРЕХВАТА ОШИБОК (ДОЛЖЕН БЫТЬ САМЫМ ПЕРВЫМ) ---
+f = ftools()
 if sys.stdout is None or sys.stderr is None:
     # Определяем папку, где лежит exe-файл
     if getattr(sys, 'frozen', False):
-        base_dir = os.path.dirname(sys.executable)
+        base_dir = str(f.logs)
     else:
         base_dir = os.path.dirname(os.path.abspath(__file__))
 

@@ -341,6 +341,18 @@ class MainWindow(QWidget):
         self.dir_edit.setStyleSheet("background: rgba(0,0,0,120); color: white; border: 1px solid #0000ff; border-radius: 6px; padding: 6px;")
 
         btn_change = QPushButton("Сменить директорию…")
+        btn_change.setStyleSheet("""
+                    QPushButton {
+                        background: rgba(255,255,255,60); color: white;
+                        border: 1px solid rgba(255,255,255,60);
+                        border-radius: 8px; padding: 6px 14px;
+                    }
+                    QPushButton:hover { background: rgba(255, 60, 60, 220); }
+                    QPushButton:disabled {
+                        background: rgba(120,120,120,80);
+                        color: rgba(255,255,255,80);
+                    }
+                """)
         btn_change.clicked.connect(self.change_dir)
 
         lay.addWidget(lbl)
@@ -361,8 +373,32 @@ class MainWindow(QWidget):
         self.hist_list.itemDoubleClicked.connect(self.repeat_history)
 
         btn_clear = QPushButton("Очистить историю")
+        btn_clear.setStyleSheet("""
+                            QPushButton {
+                                background: rgba(255,255,255,60); color: white;
+                                border: 1px solid rgba(255,255,255,60);
+                                border-radius: 8px; padding: 6px 14px;
+                            }
+                            QPushButton:hover { background: rgba(255, 60, 60, 220); }
+                            QPushButton:disabled {
+                                background: rgba(120,120,120,80);
+                                color: rgba(255,255,255,80);
+                            }
+                        """)
         btn_clear.clicked.connect(self.clear_history)
         btn_refresh = QPushButton("Обновить")
+        btn_refresh.setStyleSheet("""
+                            QPushButton {
+                                background: rgba(255,255,255,60); color: white;
+                                border: 1px solid rgba(255,255,255,60);
+                                border-radius: 8px; padding: 6px 14px;
+                            }
+                            QPushButton:hover { background: rgba(255, 60, 60, 220); }
+                            QPushButton:disabled {
+                                background: rgba(120,120,120,80);
+                                color: rgba(255,255,255,80);
+                            }
+                        """)
         btn_refresh.clicked.connect(self.refresh_history)
 
         lay.addWidget(lbl)
@@ -383,6 +419,18 @@ class MainWindow(QWidget):
         self.name_edit.setStyleSheet("background: rgba(0,0,0,120); color: white; border: 1px solid #0000ff; border-radius: 6px; padding: 6px;")
 
         btn_save = QPushButton("Сохранить имя")
+        btn_save.setStyleSheet("""
+                                    QPushButton {
+                                        background: rgba(255,255,255,60); color: white;
+                                        border: 1px solid rgba(255,255,255,60);
+                                        border-radius: 8px; padding: 6px 14px;
+                                    }
+                                    QPushButton:hover { background: rgba(255, 60, 60, 220); }
+                                    QPushButton:disabled {
+                                        background: rgba(120,120,120,80);
+                                        color: rgba(255,255,255,80);
+                                    }
+                                """)
         btn_save.clicked.connect(self.save_name)
 
         lay.addWidget(lbl)
